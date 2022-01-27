@@ -1,6 +1,6 @@
 //assert(now < goods.end_time, Errors::invalid_state(MARKET_ITEM_EXPIRED));
 
-address 0xa9D4ab8a408dDCc1eF53B48d593b9b26 {
+address 0x1e0c830eF929e530DDcfA8d79f758d09 {
 // address 0x1 {
 module Market {
     use 0x1::Signer;
@@ -17,7 +17,7 @@ module Market {
     use 0x1::Vector;
     use 0x1::Option::{Self, Option};
 
-    const MARKET_ADDRESS: address = @0xa9D4ab8a408dDCc1eF53B48d593b9b26;
+    const MARKET_ADDRESS: address = @0x1e0c830eF929e530DDcfA8d79f758d09;
     // const MARKET_ADDRESS: address = @0x1;
 
     //The market is closed
@@ -572,7 +572,7 @@ module Market {
             assert(quantity == goods.amount, Errors::invalid_argument(MARKET_INVALID_QUANTITY));
         };
         let now = Timestamp::now_seconds();
-        //assert(now < goods.end_time, Errors::invalid_state(MARKET_ITEM_EXPIRED));
+        assert(now < goods.end_time, Errors::invalid_state(MARKET_ITEM_EXPIRED));
         assert(quantity > 0 && quantity <= goods.amount, Errors::invalid_argument(MARKET_INVALID_QUANTITY));
         let last_price = if(quantity <= goods.amount - goods.sell_amount) {
             goods.base_price
@@ -716,6 +716,9 @@ module Market {
 
     // gtype = boxes
     const DICT_TYPE_CATEGORY_BOXES: u64 = 1902;
+
+    // for test 
+    const SYSTEM_ERROR_TEST:u64 = 999;
 
     // packages
     struct PackageV2 has copy, store, drop {
@@ -875,7 +878,12 @@ module Market {
         main_nft_id:u64,
         new_nft_id:u64,
         new_version:u64,
-        preview_url:vector<u8>
+        preview_url:vector<u8>,
+        //======================== new ======================
+        unopen:u64,
+        time:u64,
+        is_open:bool,
+        resource_url:vector<u8>
     }
 
     struct BuyNowEventV2 has drop, store {
@@ -892,7 +900,11 @@ module Market {
         // sell way (1801:fixed price, 1802:bid, 1803:fixed price+bid, 1804:dutch auction)
         sell_way:u64,
         // remain amount
-        remain_amount:u64
+        remain_amount:u64,
+        // gtype (1901:goods, 1902:mystery box)
+        gtype:u64,
+        // is_open
+        is_open:bool
     }
 
     //put on event
@@ -965,7 +977,9 @@ module Market {
         // sell way (1801:fixed price, 1802:bid, 1803:fixed price+bid, 1804:dutch auction)
         sell_way:u64,
         // gtype (1901:goods, 1902:mystery box)
-        gtype:u64
+        gtype:u64,
+        // is open
+        is_open:bool
     }
 
 
@@ -1593,7 +1607,7 @@ module Market {
         };
 
         if(sell_way==DICT_TYPE_SELL_WAY_BUY_NOW){
-            assert(fixed_price>0 && base_price==0 && add_price==0 && end_time==0,Errors::invalid_argument(MARKET_INVALID_SELL_WAY));
+            assert(fixed_price>0 && base_price==0 && add_price==0 && end_time>0,Errors::invalid_argument(MARKET_INVALID_SELL_WAY));
         }else if(sell_way==DICT_TYPE_SELL_WAY_BID){
             assert(fixed_price==0 && base_price>0 && add_price>0 && end_time>0,Errors::invalid_argument(MARKET_INVALID_SELL_WAY));
         }else if(sell_way==DICT_TYPE_SELL_WAY_BUY_NOW_AND_BID){
@@ -1702,7 +1716,7 @@ module Market {
 
         // check sell way
         if(sell_way==DICT_TYPE_SELL_WAY_BUY_NOW){
-            assert(fixed_price>0 && base_price==0 && add_price==0 && end_time==0,Errors::invalid_argument(MARKET_INVALID_SELL_WAY));
+            assert(fixed_price>0 && base_price==0 && add_price==0 && end_time>0,Errors::invalid_argument(MARKET_INVALID_SELL_WAY));
         }else if(sell_way==DICT_TYPE_SELL_WAY_BID){
             assert(fixed_price==0 && base_price>0 && add_price>0 && end_time>0,Errors::invalid_argument(MARKET_INVALID_SELL_WAY));
         }else if(sell_way==DICT_TYPE_SELL_WAY_BUY_NOW_AND_BID){
@@ -1791,6 +1805,7 @@ module Market {
             }else{
                 NFT::meta_image(&base_meta)
             };
+            let resource_url = *&item.resource;
             identity.id = identity.id +1;
             let new_base_meta = NFT::new_meta_with_image(*&name, copy preview_url, NFT::meta_description(&base_meta));
             let new_type_meta = GoodsNFTInfoV2{ has_in_kind:*&type_meta.has_in_kind, type:*&type_meta.type, resource_url:*&item.resource, mail:Vector::empty<u8>(), gtype:DICT_TYPE_CATEGORY_GOODS, is_open:true, main_nft_id:identity.id,tags:*&type_meta.tags, packages:Vector::empty<PackageV2>() ,extensions:Vector::empty<ExtenstionV2>() };
@@ -1807,7 +1822,11 @@ module Market {
                 main_nft_id:identity.id,
                 new_nft_id:new_nft_id,
                 new_version:2,
-                preview_url:preview_url
+                preview_url:preview_url,
+                resource_url:resource_url,
+                unopen:count-quantity,
+                time:now,
+                is_open:true
             });
 
             i = i+1;
@@ -1840,7 +1859,7 @@ module Market {
         assert(goods.sell_way==DICT_TYPE_SELL_WAY_BID || goods.sell_way==DICT_TYPE_SELL_WAY_BUY_NOW_AND_BID,Errors::invalid_argument(MARKET_INVALID_SELL_WAY));
         
         let now = Timestamp::now_seconds();
-        //assert(now < goods.end_time, Errors::invalid_state(MARKET_ITEM_EXPIRED));
+        assert(now < goods.end_time, Errors::invalid_state(MARKET_ITEM_EXPIRED));
         assert(quantity > 0 && quantity <= goods.amount, Errors::invalid_argument(MARKET_INVALID_QUANTITY));
         let last_price = if(quantity <= goods.amount - goods.sell_amount) {
             goods.base_price
@@ -1941,7 +1960,7 @@ module Market {
             assert(quantity > 0 && quantity <= goods.amount, Errors::invalid_argument(MARKET_INVALID_QUANTITY));
 
             // check end time
-            // assert(now < goods.end_time, Errors::invalid_state(MARKET_ITEM_EXPIRED));
+            assert(now < goods.end_time, Errors::invalid_state(MARKET_ITEM_EXPIRED));
 
             // calculate amount
             goods.amount = goods.amount - quantity;
@@ -1951,14 +1970,21 @@ module Market {
                 goods.sell_amount = goods.amount;
             };
 
+
+            //assert(quantity==0,Errors::invalid_argument(SYSTEM_ERROR_TEST));
+
             // refund bid list
             let limit = goods.amount;
-            refunds_by_bid_v2(&mut goods.bid_list, limit, &mut market_info.funds);
+            let len = Vector::length(&goods.bid_list);
+            if(len>0){
+                refunds_by_bid_v2(&mut goods.bid_list, limit, &mut market_info.funds);
+            };
 
             if(limit==0){
                 is_remove=true;
             }
         };
+
 
         // buy nft
         let nft_id = goods.nft_id;
@@ -1967,9 +1993,12 @@ module Market {
         let bm = *&goods.nft_base_meta;
         let tm = *&goods.nft_type_meta;
         let main_nft_id = tm.main_nft_id;
-        let storehouse = borrow_global_mut<StorehouseV2>(MARKET_ADDRESS);
+        let gtype = tm.gtype;
+        let is_open = tm.is_open;
+
         if(nft_id > 0) {
             // transfer nft to buyer
+            let storehouse = borrow_global_mut<StorehouseV2>(MARKET_ADDRESS);
             let op_nft = withdraw_nft_v2(&mut storehouse.nfts, nft_id);
             let nft = Option::destroy_some(op_nft);
             NFTGallery::deposit_to<GoodsNFTInfoV2, GoodsNFTBodyV2>(buyer, nft);
@@ -2021,7 +2050,9 @@ module Market {
             time: now,
             main_nft_id:main_nft_id,
             sell_way:sell_way,
-            remain_amount:remain_amount
+            remain_amount:remain_amount,
+            gtype:gtype,
+            is_open:is_open
         });
 
     }
@@ -2062,6 +2093,7 @@ module Market {
                 let bm = *&goods.nft_base_meta;
                 let tm = *&goods.nft_type_meta;
                 let gtype = tm.gtype;
+                let is_open = tm.is_open;
                 let main_nft_id = tm.main_nft_id;
                 let bid_data = borrow_bid_data_v2(&mut goods.bid_list, i);
                 if(nft_id > 0) {
@@ -2112,7 +2144,8 @@ module Market {
                     time: now,
                     main_nft_id:main_nft_id,
                     sell_way:goods.sell_way,
-                    gtype:gtype
+                    gtype:gtype,
+                    is_open:is_open
                 });
                 i = i + 1;
             }
@@ -2136,40 +2169,40 @@ module Market {
 }
 
 module MarketScript {
-    use 0xa9D4ab8a408dDCc1eF53B48d593b9b26::Market;
+    use 0x1e0c830eF929e530DDcfA8d79f758d09::Market;
 
-    //account execute-function -b -s 0xa9D4ab8a408dDCc1eF53B48d593b9b26 --function 0xa9D4ab8a408dDCc1eF53B48d593b9b26::MarketScript::init_market --arg 0xa9D4ab8a408dDCc1eF53B48d593b9b26
+    //account execute-function -b -s 0x1e0c830eF929e530DDcfA8d79f758d09 --function 0x1e0c830eF929e530DDcfA8d79f758d09::MarketScript::init_market --arg 0x1e0c830eF929e530DDcfA8d79f758d09
     public(script) fun init_market(account: signer, cashier: address) {
         Market::init(&account, cashier);
     }
 
-    //account execute-function -b --function 0xa9D4ab8a408dDCc1eF53B48d593b9b26::MarketScript::put_on --arg <...>
+    //account execute-function -b --function 0x1e0c830eF929e530DDcfA8d79f758d09::MarketScript::put_on --arg <...>
     public(script) fun put_on(account: signer, title: vector<u8>, type: u64, base_price: u128, add_price: u128, image: vector<u8>, resource_url: vector<u8>, desc: vector<u8>, has_in_kind: bool, end_time: u64, amount: u64, mail: vector<u8>, original_goods_id: u128) {
         Market::put_on(&account, title, type, base_price, add_price, image, resource_url, desc, has_in_kind, end_time, amount, mail, original_goods_id);
     }
 
-    //account execute-function -b --function 0xa9D4ab8a408dDCc1eF53B48d593b9b26::MarketScript::put_on_nft --arg <...>
+    //account execute-function -b --function 0x1e0c830eF929e530DDcfA8d79f758d09::MarketScript::put_on_nft --arg <...>
     public(script) fun put_on_nft(sender: signer, nft_id: u64, base_price: u128, add_price: u128, end_time: u64, mail: vector<u8>, original_goods_id: u128) {
         Market::put_on_nft(&sender, nft_id, base_price, add_price, end_time, mail, original_goods_id);
     }
 
-    //account execute-function -b --function 0xa9D4ab8a408dDCc1eF53B48d593b9b26::MarketScript::pull_off --arg <...>
+    //account execute-function -b --function 0x1e0c830eF929e530DDcfA8d79f758d09::MarketScript::pull_off --arg <...>
     public(script) fun pull_off(account: signer, goods_id: u128) {
         Market::pull_off(&account, goods_id);
     }
 
-    // account execute-function -b --function 0xa9D4ab8a408dDCc1eF53B48d593b9b26::MarketScript::bid --arg 0xa9D4ab8a408dDCc1eF53B48d593b9b26 1u128 12u128 1u64
+    // account execute-function -b --function 0x1e0c830eF929e530DDcfA8d79f758d09::MarketScript::bid --arg 0x1e0c830eF929e530DDcfA8d79f758d09 1u128 12u128 1u64
     // "gas_used": "344104"
     public(script) fun bid(account: signer, seller: address, goods_id: u128, price: u128, quantity: u64) {
         Market::bid(&account, seller, goods_id, price, quantity);
     }
 
-    // account execute-function -b -s 0xa9D4ab8a408dDCc1eF53B48d593b9b26 --function 0xa9D4ab8a408dDCc1eF53B48d593b9b26::MarketScript::settlement --arg 0xa9D4ab8a408dDCc1eF53B48d593b9b26 1u128
+    // account execute-function -b -s 0x1e0c830eF929e530DDcfA8d79f758d09 --function 0x1e0c830eF929e530DDcfA8d79f758d09::MarketScript::settlement --arg 0x1e0c830eF929e530DDcfA8d79f758d09 1u128
     public(script) fun settlement(sender: signer, seller: address, goods_id: u128) {
         Market::settlement(&sender, seller, goods_id);
     }
 
-    // account execute-function -b -s 0xa9D4ab8a408dDCc1eF53B48d593b9b26 --function 0xa9D4ab8a408dDCc1eF53B48d593b9b26::MarketScript::set_lock --arg false
+    // account execute-function -b -s 0x1e0c830eF929e530DDcfA8d79f758d09 --function 0x1e0c830eF929e530DDcfA8d79f758d09::MarketScript::set_lock --arg false
     public(script) fun set_lock(sender: signer, is_lock: bool) {
         Market::set_lock(&sender, is_lock);
     }
@@ -2181,57 +2214,57 @@ module MarketScript {
 
     // ================================================================================(new version)=========================================================================================================
 
-    //account execute-function -b -s 0xa9D4ab8a408dDCc1eF53B48d593b9b26 --function 0xa9D4ab8a408dDCc1eF53B48d593b9b26::MarketScript::init_market_v2 --arg <...>
+    //account execute-function -b -s 0x1e0c830eF929e530DDcfA8d79f758d09 --function 0x1e0c830eF929e530DDcfA8d79f758d09::MarketScript::init_market_v2 --arg <...>
     public(script) fun init_market_v2(sender: signer, cashier: address, title: vector<u8>, desc: vector<u8>, image: vector<u8>) {
         Market::init_market_v2(&sender, cashier, title, desc, image);
     }
 
-    //account execute-function -b --function 0xa9D4ab8a408dDCc1eF53B48d593b9b26::MarketScript::put_on_v2 --arg <...>
+    //account execute-function -b --function 0x1e0c830eF929e530DDcfA8d79f758d09::MarketScript::put_on_v2 --arg <...>
     public(script) fun put_on_v2(sender: signer, title: vector<u8>, sell_way:u64, fixed_price:u128, gtype:u64, tags:vector<u8>, packages:vector<vector<u8>>, package_types:vector<u64>, type: u64, base_price: u128, add_price: u128, image: vector<u8>, resource_url: vector<u8>, desc: vector<u8>, has_in_kind: bool, end_time: u64, amount: u64, original_goods_id: u128){
         Market::put_on_v2(&sender, title,sell_way,fixed_price,gtype,tags,packages,package_types, type, base_price, add_price, image, resource_url, desc, has_in_kind, end_time, amount, original_goods_id);
     }
 
-    //account execute-function -b --function 0xa9D4ab8a408dDCc1eF53B48d593b9b26::MarketScript::put_on_nft_v2 --arg <...>
+    //account execute-function -b --function 0x1e0c830eF929e530DDcfA8d79f758d09::MarketScript::put_on_nft_v2 --arg <...>
     public(script) fun put_on_nft_v2(sender: signer, nft_id: u64,sell_way:u64, fixed_price:u128, tags:vector<u8>,version:u64, base_price: u128, add_price: u128, end_time: u64, original_goods_id: u128) {
         Market::put_on_nft_v2(&sender, nft_id,sell_way,fixed_price,tags,version, base_price, add_price, end_time, original_goods_id);
     }
 
-    //account execute-function -b --function 0xa9D4ab8a408dDCc1eF53B48d593b9b26::MarketScript::pull_off_v2 --arg <...>
+    //account execute-function -b --function 0x1e0c830eF929e530DDcfA8d79f758d09::MarketScript::pull_off_v2 --arg <...>
     public(script) fun pull_off_v2(sender: signer, goods_id: u128) {
         Market::pull_off_v2(&sender, goods_id);
     }
 
-    // account execute-function -b --function 0xa9D4ab8a408dDCc1eF53B48d593b9b26::MarketScript::bid_v2 --arg <...>
+    // account execute-function -b --function 0x1e0c830eF929e530DDcfA8d79f758d09::MarketScript::bid_v2 --arg <...>
     public(script) fun bid_v2(sender: signer, seller: address, goods_id: u128, price: u128, quantity: u64) {
         Market::bid_v2(&sender, seller, goods_id, price, quantity);
     }
 
-    // account execute-function -b -s 0xa9D4ab8a408dDCc1eF53B48d593b9b26 --function 0xa9D4ab8a408dDCc1eF53B48d593b9b26::MarketScript::settlement_v2 --arg <...>
+    // account execute-function -b -s 0x1e0c830eF929e530DDcfA8d79f758d09 --function 0x1e0c830eF929e530DDcfA8d79f758d09::MarketScript::settlement_v2 --arg <...>
     public(script) fun settlement_v2(sender: signer, seller: address, goods_id: u128) {
         Market::settlement_v2(&sender, seller, goods_id);
     }
 
-    // account execute-function -b -s 0xa9D4ab8a408dDCc1eF53B48d593b9b26 --function 0xa9D4ab8a408dDCc1eF53B48d593b9b26::MarketScript::buy_now_v2 --arg <...>
+    // account execute-function -b -s 0x1e0c830eF929e530DDcfA8d79f758d09 --function 0x1e0c830eF929e530DDcfA8d79f758d09::MarketScript::buy_now_v2 --arg <...>
     public(script) fun buy_now_v2(sender: signer, seller: address, goods_id: u128, quantity: u64) {
         Market::buy_now_v2(&sender, seller, goods_id,quantity);
     }
 
-    // account execute-function -b -s 0xa9D4ab8a408dDCc1eF53B48d593b9b26 --function 0xa9D4ab8a408dDCc1eF53B48d593b9b26::MarketScript::open_box_v2 --arg <...>
+    // account execute-function -b -s 0x1e0c830eF929e530DDcfA8d79f758d09 --function 0x1e0c830eF929e530DDcfA8d79f758d09::MarketScript::open_box_v2 --arg <...>
     public(script) fun open_box_v2(sender: signer,  nft_id: u64, quantity: u64) {
         Market::open_box_v2(&sender, nft_id,quantity);
     }
     
-    // account execute-function -b -s 0xa9D4ab8a408dDCc1eF53B48d593b9b26 --function 0xa9D4ab8a408dDCc1eF53B48d593b9b26::MarketScript::cancel_goods_v2 --arg <...>
+    // account execute-function -b -s 0x1e0c830eF929e530DDcfA8d79f758d09 --function 0x1e0c830eF929e530DDcfA8d79f758d09::MarketScript::cancel_goods_v2 --arg <...>
     public(script) fun cancel_goods_v2(sender: signer,seller:address, goods_id: u128)  {
         Market::cancel_goods_v2(&sender, seller,goods_id);
     }
     
-    // account execute-function -b -s 0xa9D4ab8a408dDCc1eF53B48d593b9b26 --function 0xa9D4ab8a408dDCc1eF53B48d593b9b26::MarketScript::sync_market_v2 --arg <...>
+    // account execute-function -b -s 0x1e0c830eF929e530DDcfA8d79f758d09 --function 0x1e0c830eF929e530DDcfA8d79f758d09::MarketScript::sync_market_v2 --arg <...>
     public(script) fun sync_market_v2(sender: signer) {
         Market::sync_market_v2(&sender);
     }
     
-    // account execute-function -b -s 0xa9D4ab8a408dDCc1eF53B48d593b9b26 --function 0xa9D4ab8a408dDCc1eF53B48d593b9b26::MarketScript::set_lock_v2 --arg <...>
+    // account execute-function -b -s 0x1e0c830eF929e530DDcfA8d79f758d09 --function 0x1e0c830eF929e530DDcfA8d79f758d09::MarketScript::set_lock_v2 --arg <...>
     public(script) fun set_lock_v2(sender: signer, is_lock: bool) {
         Market::set_lock_v2(&sender, is_lock);
     }
